@@ -1,7 +1,6 @@
 @file:Suppress("UnstableApiUsage")
 
 import com.android.build.api.variant.impl.VariantOutputImpl
-import java.util.Properties
 
 plugins {
     alias(libs.plugins.androidApplication)
@@ -27,6 +26,7 @@ dependencies {
 
 android {
     namespace = ProjectConfig.PACKAGE_NAME
+
     compileSdk {
         version = release(ProjectConfig.Android.COMPILE_SDK) {
             minorApiLevel = ProjectConfig.Android.COMPILE_SDK_MINOR
@@ -46,29 +46,12 @@ android {
         }
     }
 
-    val properties = Properties()
-    runCatching { project.rootProject.file("local.properties").reader(Charsets.UTF_8).use(properties::load) }
-    val keystorePath = properties.getProperty("KEYSTORE_PATH") ?: System.getenv("KEYSTORE_PATH")
-    val keystorePwd = properties.getProperty("KEYSTORE_PASS") ?: System.getenv("KEYSTORE_PASS")
-    val alias = properties.getProperty("KEY_ALIAS") ?: System.getenv("KEY_ALIAS")
-    val pwd = properties.getProperty("KEY_PASSWORD") ?: System.getenv("KEY_PASSWORD")
-    if (keystorePath != null) {
-        signingConfigs {
-            register("github") {
-                storeFile = file(keystorePath)
-                storePassword = keystorePwd
-                keyAlias = alias
-                keyPassword = pwd
-                enableV3Signing = true
-                enableV4Signing = true
-            }
-        }
-    } else {
-        signingConfigs {
-            register("release") {
-                enableV3Signing = true
-                enableV4Signing = true
-            }
+    signingConfigs {
+        // Release 使用 Android 默认生成的 debug keystore。
+        // 该签名仅适合测试、内部构建和 CI 验证，不适合正式发布。
+        getByName("debug") {
+            enableV3Signing = true
+            enableV4Signing = true
         }
     }
 
@@ -77,11 +60,17 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             vcsInfo.include = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules-android.pro")
-            signingConfig = signingConfigs.getByName(if (keystorePath != null) "github" else "debug")
+
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules-android.pro",
+            )
+
+            signingConfig = signingConfigs.getByName("debug")
         }
+
         debug {
-            if (keystorePath != null) signingConfig = signingConfigs.getByName("github")
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -98,6 +87,7 @@ android {
         jniLibs {
             excludes += "lib/*/libandroidx.graphics.path.so"
         }
+
         resources {
             excludes += arrayOf(
                 "/META-INF/*",
@@ -121,7 +111,9 @@ androidComponents {
         variant.outputs.forEach { output ->
             (output as? VariantOutputImpl)?.outputFileName?.set(
                 output.versionName.zip(output.versionCode) { versionName, versionCode ->
-                    "${ProjectConfig.APP_NAME}-v${versionName}(${versionCode})${if (variant.buildType == "debug") "_debug" else ""}.apk"
+                    "${ProjectConfig.APP_NAME}-v${versionName}(${versionCode})${
+                        if (variant.buildType == "debug") "_debug" else ""
+                    }.apk"
                 }
             )
         }
